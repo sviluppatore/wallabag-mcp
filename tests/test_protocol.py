@@ -51,12 +51,15 @@ def test_tools_list_has_complete_descriptions() -> None:
     listed = next(r for r in responses if r.get("id") == 2)
     tools = listed["result"]["tools"]
 
-    assert len(tools) >= 17
+    assert len(tools) >= 20
     names = {t["name"] for t in tools}
     assert "wallabag_health_check" in names
     assert "wallabag_list_entries" in names
+    assert "wallabag_search" in names
+    assert "wallabag_entry_exists" in names
     assert "wallabag_add_entry" in names
     assert "wallabag_archive_entry" in names
+    assert "wallabag_remove_tag_from_entry" in names
     assert "wallabag_list_annotations" in names
 
     for tool in tools:

@@ -40,10 +40,11 @@ Alternatively provide `WALLABAG_ACCESS_TOKEN` to skip password-grant token acqui
 
 - Health/auth: `wallabag_health_check`
 - Reading queue: `wallabag_list_entries`, `wallabag_get_entry`
-- Capture: `wallabag_add_entry`
+- Search: `wallabag_search` (full-text, wallabag 2.5+)
+- Capture: `wallabag_entry_exists` (dedupe check), `wallabag_add_entry`
 - State changes: `wallabag_archive_entry`, `wallabag_unarchive_entry`, `wallabag_star_entry`, `wallabag_unstar_entry`, `wallabag_update_entry`, `wallabag_reload_entry`
 - Cleanup: `wallabag_delete_entry`
-- Tags: `wallabag_list_tags`, `wallabag_add_tags_to_entry`, `wallabag_delete_tag`
+- Tags: `wallabag_list_tags`, `wallabag_add_tags_to_entry`, `wallabag_remove_tag_from_entry`, `wallabag_delete_tag`
 - Annotations: `wallabag_list_annotations`, `wallabag_create_annotation`, `wallabag_delete_annotation`
 
 ## Pitfalls

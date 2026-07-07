@@ -15,12 +15,14 @@ This server gives AI assistants a structured interface for common wallabag workf
 
 - Verify connectivity and authentication with a tiny read-only health check
 - List, filter, and page through saved articles
+- Full-text search saved articles (wallabag 2.5+)
+- Check whether a URL is already saved before re-adding it
 - Fetch entry metadata or full extracted content
 - Save new URLs
 - Archive/unarchive and star/unstar entries
 - Reload/refetch article extraction
 - Delete entries
-- List and add tags
+- List, add, and remove tags
 - List, create, and delete annotations
 
 ## Why this exists
@@ -49,6 +51,7 @@ The server reads configuration from environment variables:
 |---|---:|---|
 | `WALLABAG_BASE_URL` | Yes | Base URL of your wallabag instance, e.g. `https://app.wallabag.it` |
 | `WALLABAG_ACCESS_TOKEN` | Optional | Existing OAuth access token; if set, password grant is skipped |
+| `WALLABAG_REFRESH_TOKEN` | Optional | OAuth refresh token; used to renew expired access tokens before falling back to the password grant |
 | `WALLABAG_CLIENT_ID` | Required unless access token is set | OAuth client id from wallabag's developer client page |
 | `WALLABAG_CLIENT_SECRET` | Required unless access token is set | OAuth client secret |
 | `WALLABAG_USERNAME` | Required unless access token is set | wallabag username |
@@ -82,6 +85,8 @@ Create a wallabag API client from your wallabag instance under **Developer / API
 |---|---|
 | `wallabag_health_check` | Verify connectivity and authentication with a tiny read-only request |
 | `wallabag_list_entries` | List entries with pagination and filters |
+| `wallabag_search` | Full-text search entries (requires wallabag 2.5+) |
+| `wallabag_entry_exists` | Check whether a URL is already saved |
 | `wallabag_get_entry` | Fetch one entry, optionally including extracted content |
 | `wallabag_add_entry` | Save a URL into wallabag |
 | `wallabag_update_entry` | Update title, URL, archive/starred state, or tags |
@@ -93,6 +98,7 @@ Create a wallabag API client from your wallabag instance under **Developer / API
 | `wallabag_delete_entry` | Delete an entry |
 | `wallabag_list_tags` | List known tags |
 | `wallabag_add_tags_to_entry` | Add comma-separated tags to an entry |
+| `wallabag_remove_tag_from_entry` | Remove a tag from one entry without deleting it globally |
 | `wallabag_delete_tag` | Delete a tag globally |
 | `wallabag_list_annotations` | List annotations for an entry |
 | `wallabag_create_annotation` | Create an annotation on quoted article text |
@@ -109,7 +115,7 @@ pytest
 python scripts/live_docs_test.py
 ```
 
-`live_docs_test.py` validates wallabag's public API documentation and the hosted API docs page without needing account credentials. Mutation and authenticated request behaviours are covered with mocked HTTP tests.
+`live_docs_test.py` validates wallabag's public API documentation and the hosted API docs page without needing account credentials; in CI it runs on a weekly schedule (or manual dispatch) rather than on every push, so external site hiccups don't block development. Mutation and authenticated request behaviours are covered with mocked HTTP tests.
 
 ## Safety
 
