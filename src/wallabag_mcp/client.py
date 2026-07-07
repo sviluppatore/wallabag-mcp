@@ -195,6 +195,21 @@ class WallabagClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> Any:
+        response = await self._authorized(method, path, params, json_body)
+        if response.status_code == 204 or not response.content:
+            return {"ok": True}
+        if "json" in response.headers.get("content-type", ""):
+            return response.json()
+        text = response.text.strip()
+        return {"ok": True, "text": text} if text else {"ok": True}
+
+    async def _authorized(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> httpx.Response:
         try:
             response = await self._send(method, path, params, json_body, token=await self._token())
             if response.status_code == 401 and self._can_acquire_token():
@@ -206,12 +221,7 @@ class WallabagClient:
             ) from exc
         except httpx.HTTPError as exc:
             raise WallabagError(f"{method} {path} failed: {exc}") from exc
-        if response.status_code == 204 or not response.content:
-            return {"ok": True}
-        if "json" in response.headers.get("content-type", ""):
-            return response.json()
-        text = response.text.strip()
-        return {"ok": True, "text": text} if text else {"ok": True}
+        return response
 
     async def _send(
         self,
@@ -272,6 +282,11 @@ class WallabagClient:
     async def entry_exists(self, url: str) -> dict[str, Any]:
         data = await self.request("GET", _api_path("/entries/exists"), params={"url": url, "return_id": 1})
         return data if isinstance(data, dict) else {"exists": data}
+
+    async def export_entry(self, entry_id: int, fmt: str = "txt") -> str:
+        """Return an entry rendered in a text-based export format (txt, json, xml, csv)."""
+        response = await self._authorized("GET", f"/api/entries/{entry_id}/export.{fmt}")
+        return response.text
 
     async def get_entry(self, entry_id: int) -> dict[str, Any]:
         data = await self.request("GET", _api_path(f"/entries/{entry_id}"))
@@ -335,6 +350,12 @@ class WallabagClient:
         )
         if not isinstance(data, dict):
             raise WallabagError(f"Expected annotation object after create, got {type(data).__name__}")
+        return data
+
+    async def update_annotation(self, annotation_id: int, text: str) -> dict[str, Any]:
+        data = await self.request("PUT", _api_path(f"/annotations/{annotation_id}"), json_body={"text": text})
+        if not isinstance(data, dict):
+            raise WallabagError(f"Expected annotation object after update, got {type(data).__name__}")
         return data
 
     async def delete_annotation(self, annotation_id: int) -> dict[str, Any]:

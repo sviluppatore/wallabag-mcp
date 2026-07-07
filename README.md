@@ -7,7 +7,7 @@
 
 
 
-<!-- mcp-name: io.github.rusty4444/wallabag-mcp -->
+<!-- mcp-name: io.github.sviluppatore/wallabag-mcp -->
 
 A Model Context Protocol (MCP) server for [wallabag](https://wallabag.org/), the open-source read-it-later service.
 
@@ -17,13 +17,14 @@ This server gives AI assistants a structured interface for common wallabag workf
 - List, filter, and page through saved articles
 - Full-text search saved articles (wallabag 2.5+)
 - Check whether a URL is already saved before re-adding it
-- Fetch entry metadata or full extracted content
+- Fetch entry metadata or readable article text
+- Export full entry content (txt, json, xml, csv)
 - Save new URLs
 - Archive/unarchive and star/unstar entries
 - Reload/refetch article extraction
 - Delete entries
 - List, add, and remove tags
-- List, create, and delete annotations
+- List, create, update, and delete annotations
 
 ## Why this exists
 
@@ -32,7 +33,7 @@ wallabag is widely used in self-hosted setups, but its API is OAuth-based and aw
 ## Installation
 
 ```bash
-pipx install git+https://github.com/rusty4444/wallabag-mcp.git
+pipx install git+https://github.com/sviluppatore/wallabag-mcp.git
 ```
 
 Or from a checkout:
@@ -87,7 +88,8 @@ Create a wallabag API client from your wallabag instance under **Developer / API
 | `wallabag_list_entries` | List entries with pagination and filters |
 | `wallabag_search` | Full-text search entries (requires wallabag 2.5+) |
 | `wallabag_entry_exists` | Check whether a URL is already saved |
-| `wallabag_get_entry` | Fetch one entry, optionally including extracted content |
+| `wallabag_get_entry` | Fetch one entry, optionally with its readable text content |
+| `wallabag_export_entry` | Export an entry's full content as txt, json, xml, or csv |
 | `wallabag_add_entry` | Save a URL into wallabag |
 | `wallabag_update_entry` | Update title, URL, archive/starred state, or tags |
 | `wallabag_archive_entry` | Mark an entry archived/read |
@@ -102,6 +104,7 @@ Create a wallabag API client from your wallabag instance under **Developer / API
 | `wallabag_delete_tag` | Delete a tag globally |
 | `wallabag_list_annotations` | List annotations for an entry |
 | `wallabag_create_annotation` | Create an annotation on quoted article text |
+| `wallabag_update_annotation` | Update an annotation's text |
 | `wallabag_delete_annotation` | Delete an annotation |
 
 ## Development and validation

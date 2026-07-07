@@ -192,6 +192,28 @@ async def test_entry_exists():
 
 
 @respx.mock
+async def test_export_entry_returns_text():
+    client.configure(access_token="token")
+    export_route = respx.get("https://wallabag.example/api/entries/7/export.txt").mock(
+        return_value=httpx.Response(200, text="Full article text", headers={"content-type": "text/plain"})
+    )
+
+    assert await client.export_entry(7, "txt") == "Full article text"
+    assert export_route.call_count == 1
+
+
+@respx.mock
+async def test_update_annotation():
+    client.configure(access_token="token")
+    update_route = respx.put("https://wallabag.example/api/annotations/9.json").mock(
+        return_value=httpx.Response(200, json={"id": 9, "text": "revised note"})
+    )
+
+    assert (await client.update_annotation(9, "revised note"))["text"] == "revised note"
+    assert update_route.calls[0].request.content == b'{"text":"revised note"}'
+
+
+@respx.mock
 async def test_tags_and_annotations():
     client.configure(access_token="token")
     respx.get("https://wallabag.example/api/tags.json").mock(return_value=httpx.Response(200, json=[{"id": 2, "label": "ai"}]))

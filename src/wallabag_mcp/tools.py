@@ -85,14 +85,31 @@ def register_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def wallabag_get_entry(
         entry_id: EntryId,
-        include_content: Annotated[bool, Field(description="Include extracted HTML content in the output; false returns metadata only")] = False,
+        include_content: Annotated[bool, Field(description="Include the article text (extracted from HTML) in the output; false returns metadata only")] = False,
+        max_content_chars: Annotated[int, Field(description="Maximum characters of article text to include when include_content is true")] = 5000,
     ) -> str:
-        """Get a wallabag entry/article by id."""
+        """Get a wallabag entry/article by id, optionally with its readable text content."""
         try:
             entry = await api.get_entry(entry_id)
-            return _format_entry_detail(entry, include_content=include_content)
+            return _format_entry_detail(entry, include_content=include_content, content_limit=max(200, max_content_chars))
         except Exception as exc:
             return f"Error getting wallabag entry {entry_id}: {exc}"
+
+    @mcp.tool()
+    async def wallabag_export_entry(
+        entry_id: EntryId,
+        format: Annotated[Literal["txt", "json", "xml", "csv"], Field(description="Text-based export format rendered by wallabag")] = "txt",
+        max_chars: Annotated[int, Field(description="Maximum characters to return; longer exports are truncated with a notice")] = 20000,
+    ) -> str:
+        """Export a wallabag entry's full readable content in a text-based format."""
+        try:
+            content = await api.export_entry(entry_id, format)
+            limit = max(200, max_chars)
+            if len(content) > limit:
+                return content[:limit] + f"\n\n[truncated: {len(content) - limit} of {len(content)} characters omitted]"
+            return content
+        except Exception as exc:
+            return f"Error exporting wallabag entry {entry_id}: {exc}"
 
     @mcp.tool()
     async def wallabag_add_entry(
@@ -238,6 +255,17 @@ def register_tools(mcp: FastMCP) -> None:
             return f"Error creating annotation for wallabag entry {entry_id}: {exc}"
 
     @mcp.tool()
+    async def wallabag_update_annotation(
+        annotation_id: Annotated[int, Field(description="wallabag annotation id to update")],
+        text: Annotated[str, Field(description="New annotation text/comment")],
+    ) -> str:
+        """Update the text of an existing wallabag annotation."""
+        try:
+            return _json(await api.update_annotation(annotation_id, text))
+        except Exception as exc:
+            return f"Error updating wallabag annotation {annotation_id}: {exc}"
+
+    @mcp.tool()
     async def wallabag_delete_annotation(
         annotation_id: Annotated[int, Field(description="wallabag annotation id to delete")],
     ) -> str:
@@ -291,10 +319,10 @@ def _format_entry_list(entries: list[dict[str, Any]], pagination: dict[str, Any]
     return "\n".join(lines)
 
 
-def _format_entry_detail(entry: dict[str, Any], *, include_content: bool) -> str:
-    payload = {k: v for k, v in entry.items() if include_content or k != "content"}
+def _format_entry_detail(entry: dict[str, Any], *, include_content: bool, content_limit: int = 5000) -> str:
+    payload = {k: v for k, v in entry.items() if k != "content"}
     if include_content and entry.get("content"):
-        payload["content_text_preview"] = _strip_html(str(entry.get("content")))
+        payload["content_text"] = _strip_html(str(entry.get("content")), limit=content_limit)
     return _json(payload)
 
 
