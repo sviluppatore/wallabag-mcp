@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from . import client as api
+from .client import default_client as api
 
 EntryId = Annotated[int, Field(description="wallabag entry/article id")]
 
@@ -20,7 +20,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_health_check() -> str:
         """Verify wallabag API connectivity and authentication with a tiny read-only request."""
         try:
-            return _json(api.health_check())
+            return _json(await api.health_check())
         except Exception as exc:
             return f"Error checking wallabag health: {exc}"
 
@@ -28,25 +28,25 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_list_entries(
         page: Annotated[int, Field(description="Page number to fetch from wallabag, starting at 1")] = 1,
         per_page: Annotated[int, Field(description="Entries per page, usually 1-100")] = 30,
-        sort: Annotated[str, Field(description="Sort field supported by wallabag, commonly created, updated, archived, starred, reading_time, domain_name")] = "created",
-        order: Annotated[str, Field(description="Sort order: asc or desc")] = "desc",
-        archived: Annotated[bool | None, Field(description="Filter archived entries; true archived, false not archived, null no filter")] = None,
+        sort: Annotated[Literal["created", "updated", "archived"], Field(description="Sort field")] = "created",
+        order: Annotated[Literal["asc", "desc"], Field(description="Sort order")] = "desc",
+        archived: Annotated[bool | None, Field(description="Filter by archived/read state; false means unread entries, null no filter")] = None,
         starred: Annotated[bool | None, Field(description="Filter starred entries; true starred, false unstarred, null no filter")] = None,
-        unread: Annotated[bool | None, Field(description="Filter unread entries; true unread, false read, null no filter")] = None,
         domain_name: Annotated[str | None, Field(description="Optional domain_name filter, for example example.com")] = None,
-        tags: Annotated[str | None, Field(description="Optional comma-separated tag filter")]= None,
+        since: Annotated[int | None, Field(description="Only entries updated after this UNIX timestamp in seconds, null no filter")] = None,
+        tags: Annotated[str | None, Field(description="Optional comma-separated tag filter")] = None,
     ) -> str:
         """List wallabag entries/articles with filters and pagination."""
         try:
-            data = api.list_entries(
+            data = await api.list_entries(
                 page=max(1, page),
                 per_page=max(1, min(per_page, 100)),
                 sort=sort,
                 order=order,
                 archive=_bool_int(archived),
                 starred=_bool_int(starred),
-                unread=_bool_int(unread),
                 domain_name=domain_name,
+                since=since,
                 tags=tags,
             )
             return _format_entry_list(data["items"], data.get("pagination", {}))
@@ -54,28 +54,74 @@ def register_tools(mcp: FastMCP) -> None:
             return f"Error listing wallabag entries: {exc}"
 
     @mcp.tool()
+    async def wallabag_search(
+        term: Annotated[str, Field(description="Full-text search term matched against entry title, content, and URL")],
+        page: Annotated[int, Field(description="Page number to fetch, starting at 1")] = 1,
+        per_page: Annotated[int, Field(description="Entries per page, usually 1-100")] = 30,
+    ) -> str:
+        """Full-text search saved wallabag entries (requires wallabag 2.5+)."""
+        try:
+            data = await api.search_entries(term, page=max(1, page), per_page=max(1, min(per_page, 100)))
+            return _format_entry_list(data["items"], data.get("pagination", {}))
+        except Exception as exc:
+            return f"Error searching wallabag entries: {exc}"
+
+    @mcp.tool()
+    async def wallabag_entry_exists(
+        url: Annotated[str, Field(description="URL to check against the wallabag library")],
+    ) -> str:
+        """Check whether a URL is already saved in wallabag, returning the entry id if so."""
+        try:
+            data = await api.entry_exists(url)
+            exists = data.get("exists")
+            if isinstance(exists, bool):
+                return f"URL {'already saved' if exists else 'not saved yet'} in wallabag: {url}"
+            if exists:
+                return f"URL already saved as wallabag entry #{exists}: {url}"
+            return f"URL not saved in wallabag yet: {url}"
+        except Exception as exc:
+            return f"Error checking wallabag for {url}: {exc}"
+
+    @mcp.tool()
     async def wallabag_get_entry(
         entry_id: EntryId,
-        include_content: Annotated[bool, Field(description="Include extracted HTML content in the output; false returns metadata only")] = False,
+        include_content: Annotated[bool, Field(description="Include the article text (extracted from HTML) in the output; false returns metadata only")] = False,
+        max_content_chars: Annotated[int, Field(description="Maximum characters of article text to include when include_content is true")] = 5000,
     ) -> str:
-        """Get a wallabag entry/article by id."""
+        """Get a wallabag entry/article by id, optionally with its readable text content."""
         try:
-            entry = api.get_entry(entry_id)
-            return _format_entry_detail(entry, include_content=include_content)
+            entry = await api.get_entry(entry_id)
+            return _format_entry_detail(entry, include_content=include_content, content_limit=max(200, max_content_chars))
         except Exception as exc:
             return f"Error getting wallabag entry {entry_id}: {exc}"
 
     @mcp.tool()
+    async def wallabag_export_entry(
+        entry_id: EntryId,
+        format: Annotated[Literal["txt", "json", "xml", "csv"], Field(description="Text-based export format rendered by wallabag")] = "txt",
+        max_chars: Annotated[int, Field(description="Maximum characters to return; longer exports are truncated with a notice")] = 20000,
+    ) -> str:
+        """Export a wallabag entry's full readable content in a text-based format."""
+        try:
+            content = await api.export_entry(entry_id, format)
+            limit = max(200, max_chars)
+            if len(content) > limit:
+                return content[:limit] + f"\n\n[truncated: {len(content) - limit} of {len(content)} characters omitted]"
+            return content
+        except Exception as exc:
+            return f"Error exporting wallabag entry {entry_id}: {exc}"
+
+    @mcp.tool()
     async def wallabag_add_entry(
         url: Annotated[str, Field(description="URL to save into wallabag")],
-        title: Annotated[str | None, Field(description="Optional title override")]= None,
-        tags: Annotated[str | None, Field(description="Optional comma-separated tags to assign")]= None,
-        archive: Annotated[bool | None, Field(description="Set archived state after creation")]= None,
-        starred: Annotated[bool | None, Field(description="Set starred/favourite state after creation")]= None,
+        title: Annotated[str | None, Field(description="Optional title override")] = None,
+        tags: Annotated[str | None, Field(description="Optional comma-separated tags to assign")] = None,
+        archive: Annotated[bool | None, Field(description="Set archived state after creation")] = None,
+        starred: Annotated[bool | None, Field(description="Set starred/favourite state after creation")] = None,
     ) -> str:
         """Save a URL as a wallabag entry."""
         try:
-            entry = api.create_entry(url, title=title, tags=tags, archive=_bool_int(archive), starred=_bool_int(starred))
+            entry = await api.create_entry(url, title=title, tags=tags, archive=_bool_int(archive), starred=_bool_int(starred))
             return _format_entry_detail(entry, include_content=False)
         except Exception as exc:
             return f"Error adding wallabag entry: {exc}"
@@ -83,15 +129,15 @@ def register_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def wallabag_update_entry(
         entry_id: EntryId,
-        title: Annotated[str | None, Field(description="Optional new title")]= None,
-        url: Annotated[str | None, Field(description="Optional new URL")]= None,
-        archived: Annotated[bool | None, Field(description="Set archived/read-later state")]= None,
-        starred: Annotated[bool | None, Field(description="Set starred/favourite state")]= None,
-        tags: Annotated[str | None, Field(description="Optional comma-separated tag list to set/add depending on wallabag version")]= None,
+        title: Annotated[str | None, Field(description="Optional new title")] = None,
+        url: Annotated[str | None, Field(description="Optional new URL")] = None,
+        archived: Annotated[bool | None, Field(description="Set archived/read-later state")] = None,
+        starred: Annotated[bool | None, Field(description="Set starred/favourite state")] = None,
+        tags: Annotated[str | None, Field(description="Optional comma-separated tag list to set/add depending on wallabag version")] = None,
     ) -> str:
         """Update metadata/state for a wallabag entry."""
         try:
-            entry = api.update_entry(entry_id, title=title, url=url, archive=_bool_int(archived), starred=_bool_int(starred), tags=tags)
+            entry = await api.update_entry(entry_id, title=title, url=url, archive=_bool_int(archived), starred=_bool_int(starred), tags=tags)
             return _format_entry_detail(entry, include_content=False)
         except Exception as exc:
             return f"Error updating wallabag entry {entry_id}: {exc}"
@@ -100,7 +146,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_archive_entry(entry_id: EntryId) -> str:
         """Mark a wallabag entry as archived/read."""
         try:
-            return _format_entry_detail(api.update_entry(entry_id, archive=1), include_content=False)
+            return _format_entry_detail(await api.update_entry(entry_id, archive=1), include_content=False)
         except Exception as exc:
             return f"Error archiving wallabag entry {entry_id}: {exc}"
 
@@ -108,7 +154,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_unarchive_entry(entry_id: EntryId) -> str:
         """Mark a wallabag entry as unarchived/unread."""
         try:
-            return _format_entry_detail(api.update_entry(entry_id, archive=0), include_content=False)
+            return _format_entry_detail(await api.update_entry(entry_id, archive=0), include_content=False)
         except Exception as exc:
             return f"Error unarchiving wallabag entry {entry_id}: {exc}"
 
@@ -116,7 +162,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_star_entry(entry_id: EntryId) -> str:
         """Mark a wallabag entry as starred/favourite."""
         try:
-            return _format_entry_detail(api.update_entry(entry_id, starred=1), include_content=False)
+            return _format_entry_detail(await api.update_entry(entry_id, starred=1), include_content=False)
         except Exception as exc:
             return f"Error starring wallabag entry {entry_id}: {exc}"
 
@@ -124,7 +170,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_unstar_entry(entry_id: EntryId) -> str:
         """Remove starred/favourite state from a wallabag entry."""
         try:
-            return _format_entry_detail(api.update_entry(entry_id, starred=0), include_content=False)
+            return _format_entry_detail(await api.update_entry(entry_id, starred=0), include_content=False)
         except Exception as exc:
             return f"Error unstarring wallabag entry {entry_id}: {exc}"
 
@@ -132,7 +178,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_reload_entry(entry_id: EntryId) -> str:
         """Ask wallabag to refetch/reparse the original article URL."""
         try:
-            return _format_entry_detail(api.reload_entry(entry_id), include_content=False)
+            return _format_entry_detail(await api.reload_entry(entry_id), include_content=False)
         except Exception as exc:
             return f"Error reloading wallabag entry {entry_id}: {exc}"
 
@@ -140,7 +186,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_delete_entry(entry_id: EntryId) -> str:
         """Delete a wallabag entry."""
         try:
-            return _json(api.delete_entry(entry_id))
+            return _json(await api.delete_entry(entry_id))
         except Exception as exc:
             return f"Error deleting wallabag entry {entry_id}: {exc}"
 
@@ -148,7 +194,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_list_tags() -> str:
         """List tags known to the wallabag account."""
         try:
-            return _format_tags(api.list_tags())
+            return _format_tags(await api.list_tags())
         except Exception as exc:
             return f"Error listing wallabag tags: {exc}"
 
@@ -159,9 +205,20 @@ def register_tools(mcp: FastMCP) -> None:
     ) -> str:
         """Add one or more tags to a wallabag entry."""
         try:
-            return _format_entry_detail(api.add_tag(entry_id, tags), include_content=False)
+            return _format_entry_detail(await api.add_tags(entry_id, tags), include_content=False)
         except Exception as exc:
             return f"Error adding tags to wallabag entry {entry_id}: {exc}"
+
+    @mcp.tool()
+    async def wallabag_remove_tag_from_entry(
+        entry_id: EntryId,
+        tag_id: Annotated[int, Field(description="wallabag tag id to remove from this entry only")],
+    ) -> str:
+        """Remove a tag from a single wallabag entry without deleting the tag globally."""
+        try:
+            return _format_entry_detail(await api.remove_tag_from_entry(entry_id, tag_id), include_content=False)
+        except Exception as exc:
+            return f"Error removing tag {tag_id} from wallabag entry {entry_id}: {exc}"
 
     @mcp.tool()
     async def wallabag_delete_tag(
@@ -169,7 +226,7 @@ def register_tools(mcp: FastMCP) -> None:
     ) -> str:
         """Delete a wallabag tag globally."""
         try:
-            return _json(api.delete_tag(tag_id))
+            return _json(await api.delete_tag(tag_id))
         except Exception as exc:
             return f"Error deleting wallabag tag {tag_id}: {exc}"
 
@@ -177,7 +234,7 @@ def register_tools(mcp: FastMCP) -> None:
     async def wallabag_list_annotations(entry_id: EntryId) -> str:
         """List annotations for a wallabag entry."""
         try:
-            return _json(api.list_annotations(entry_id))
+            return _json(await api.list_annotations(entry_id))
         except Exception as exc:
             return f"Error listing annotations for wallabag entry {entry_id}: {exc}"
 
@@ -186,16 +243,27 @@ def register_tools(mcp: FastMCP) -> None:
         entry_id: EntryId,
         text: Annotated[str, Field(description="Annotation text/comment")],
         quote: Annotated[str, Field(description="Exact quoted article text being annotated")],
-        ranges_json: Annotated[str | None, Field(description="Optional JSON array of wallabag annotation range objects, for example [{\"start\":\"/p[1]\",\"startOffset\":0,\"end\":\"/p[1]\",\"endOffset\":12}]")]= None,
+        ranges_json: Annotated[str | None, Field(description="Optional JSON array of wallabag annotation range objects, for example [{\"start\":\"/p[1]\",\"startOffset\":0,\"end\":\"/p[1]\",\"endOffset\":12}]")] = None,
     ) -> str:
         """Create an annotation on a wallabag entry."""
         try:
             ranges = json.loads(ranges_json) if ranges_json else None
             if ranges is not None and not isinstance(ranges, list):
                 raise ValueError("ranges_json must decode to a JSON array")
-            return _json(api.create_annotation(entry_id, text=text, quote=quote, ranges=ranges))
+            return _json(await api.create_annotation(entry_id, text=text, quote=quote, ranges=ranges))
         except Exception as exc:
             return f"Error creating annotation for wallabag entry {entry_id}: {exc}"
+
+    @mcp.tool()
+    async def wallabag_update_annotation(
+        annotation_id: Annotated[int, Field(description="wallabag annotation id to update")],
+        text: Annotated[str, Field(description="New annotation text/comment")],
+    ) -> str:
+        """Update the text of an existing wallabag annotation."""
+        try:
+            return _json(await api.update_annotation(annotation_id, text))
+        except Exception as exc:
+            return f"Error updating wallabag annotation {annotation_id}: {exc}"
 
     @mcp.tool()
     async def wallabag_delete_annotation(
@@ -203,7 +271,7 @@ def register_tools(mcp: FastMCP) -> None:
     ) -> str:
         """Delete a wallabag annotation."""
         try:
-            return _json(api.delete_annotation(annotation_id))
+            return _json(await api.delete_annotation(annotation_id))
         except Exception as exc:
             return f"Error deleting wallabag annotation {annotation_id}: {exc}"
 
@@ -251,10 +319,10 @@ def _format_entry_list(entries: list[dict[str, Any]], pagination: dict[str, Any]
     return "\n".join(lines)
 
 
-def _format_entry_detail(entry: dict[str, Any], *, include_content: bool) -> str:
-    payload = {k: v for k, v in entry.items() if include_content or k != "content"}
+def _format_entry_detail(entry: dict[str, Any], *, include_content: bool, content_limit: int = 5000) -> str:
+    payload = {k: v for k, v in entry.items() if k != "content"}
     if include_content and entry.get("content"):
-        payload["content_text_preview"] = _strip_html(str(entry.get("content")))
+        payload["content_text"] = _strip_html(str(entry.get("content")), limit=content_limit)
     return _json(payload)
 
 

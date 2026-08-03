@@ -7,7 +7,7 @@
 
 
 
-<!-- mcp-name: io.github.rusty4444/wallabag-mcp -->
+<!-- mcp-name: io.github.sviluppatore/wallabag-mcp -->
 
 A Model Context Protocol (MCP) server for [wallabag](https://wallabag.org/), the open-source read-it-later service.
 
@@ -15,13 +15,16 @@ This server gives AI assistants a structured interface for common wallabag workf
 
 - Verify connectivity and authentication with a tiny read-only health check
 - List, filter, and page through saved articles
-- Fetch entry metadata or full extracted content
+- Full-text search saved articles (wallabag 2.5+)
+- Check whether a URL is already saved before re-adding it
+- Fetch entry metadata or readable article text
+- Export full entry content (txt, json, xml, csv)
 - Save new URLs
 - Archive/unarchive and star/unstar entries
 - Reload/refetch article extraction
 - Delete entries
-- List and add tags
-- List, create, and delete annotations
+- List, add, and remove tags
+- List, create, update, and delete annotations
 
 ## Why this exists
 
@@ -30,7 +33,7 @@ wallabag is widely used in self-hosted setups, but its API is OAuth-based and aw
 ## Installation
 
 ```bash
-pipx install git+https://github.com/rusty4444/wallabag-mcp.git
+pipx install git+https://github.com/sviluppatore/wallabag-mcp.git
 ```
 
 Or from a checkout:
@@ -49,6 +52,7 @@ The server reads configuration from environment variables:
 |---|---:|---|
 | `WALLABAG_BASE_URL` | Yes | Base URL of your wallabag instance, e.g. `https://app.wallabag.it` |
 | `WALLABAG_ACCESS_TOKEN` | Optional | Existing OAuth access token; if set, password grant is skipped |
+| `WALLABAG_REFRESH_TOKEN` | Optional | OAuth refresh token; used to renew expired access tokens before falling back to the password grant |
 | `WALLABAG_CLIENT_ID` | Required unless access token is set | OAuth client id from wallabag's developer client page |
 | `WALLABAG_CLIENT_SECRET` | Required unless access token is set | OAuth client secret |
 | `WALLABAG_USERNAME` | Required unless access token is set | wallabag username |
@@ -82,7 +86,10 @@ Create a wallabag API client from your wallabag instance under **Developer / API
 |---|---|
 | `wallabag_health_check` | Verify connectivity and authentication with a tiny read-only request |
 | `wallabag_list_entries` | List entries with pagination and filters |
-| `wallabag_get_entry` | Fetch one entry, optionally including extracted content |
+| `wallabag_search` | Full-text search entries (requires wallabag 2.5+) |
+| `wallabag_entry_exists` | Check whether a URL is already saved |
+| `wallabag_get_entry` | Fetch one entry, optionally with its readable text content |
+| `wallabag_export_entry` | Export an entry's full content as txt, json, xml, or csv |
 | `wallabag_add_entry` | Save a URL into wallabag |
 | `wallabag_update_entry` | Update title, URL, archive/starred state, or tags |
 | `wallabag_archive_entry` | Mark an entry archived/read |
@@ -93,9 +100,11 @@ Create a wallabag API client from your wallabag instance under **Developer / API
 | `wallabag_delete_entry` | Delete an entry |
 | `wallabag_list_tags` | List known tags |
 | `wallabag_add_tags_to_entry` | Add comma-separated tags to an entry |
+| `wallabag_remove_tag_from_entry` | Remove a tag from one entry without deleting it globally |
 | `wallabag_delete_tag` | Delete a tag globally |
 | `wallabag_list_annotations` | List annotations for an entry |
 | `wallabag_create_annotation` | Create an annotation on quoted article text |
+| `wallabag_update_annotation` | Update an annotation's text |
 | `wallabag_delete_annotation` | Delete an annotation |
 
 ## Development and validation
@@ -109,7 +118,7 @@ pytest
 python scripts/live_docs_test.py
 ```
 
-`live_docs_test.py` validates wallabag's public API documentation and the hosted API docs page without needing account credentials. Mutation and authenticated request behaviours are covered with mocked HTTP tests.
+`live_docs_test.py` validates wallabag's public API documentation and the hosted API docs page without needing account credentials; in CI it runs on a weekly schedule (or manual dispatch) rather than on every push, so external site hiccups don't block development. Mutation and authenticated request behaviours are covered with mocked HTTP tests.
 
 ## Safety
 

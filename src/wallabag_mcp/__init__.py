@@ -7,7 +7,7 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from . import client as api
+from .client import default_client
 from .tools import register_tools
 
 mcp = FastMCP("wallabag-mcp")
@@ -21,7 +21,14 @@ def main() -> None:
         print("Error: WALLABAG_BASE_URL is required", file=sys.stderr)
         sys.exit(1)
 
-    api.configure(
+    timeout_raw = os.environ.get("WALLABAG_TIMEOUT", "20")
+    try:
+        timeout = float(timeout_raw)
+    except ValueError:
+        print(f"Error: WALLABAG_TIMEOUT must be a number, got {timeout_raw!r}", file=sys.stderr)
+        sys.exit(1)
+
+    default_client.configure(
         base_url=base_url,
         client_id=os.environ.get("WALLABAG_CLIENT_ID"),
         client_secret=os.environ.get("WALLABAG_CLIENT_SECRET"),
@@ -29,7 +36,7 @@ def main() -> None:
         password=os.environ.get("WALLABAG_PASSWORD"),
         access_token=os.environ.get("WALLABAG_ACCESS_TOKEN"),
         refresh_token=os.environ.get("WALLABAG_REFRESH_TOKEN"),
-        timeout=float(os.environ.get("WALLABAG_TIMEOUT", "20")),
+        timeout=timeout,
     )
     mcp.run(transport="stdio")
 
